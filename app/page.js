@@ -1139,18 +1139,38 @@ function AdminStatsUpload({ teams, onSuccess }) {
       const sortedIds = [preview.matchedTeam0.id, preview.matchedTeam1.id].sort()
       const isTeam0First = preview.matchedTeam0.id === sortedIds[0]
 
-      // Create match record
-      const { data: match, error: matchError } = await supabase.from('matches').insert({
-        division,
-        week,
-        team1_id: sortedIds[0],
-        team2_id: sortedIds[1],
-        team1_maps: isTeam0First ? preview.team0Wins : preview.team1Wins,
-        team2_maps: isTeam0First ? preview.team1Wins : preview.team0Wins,
-        admin_approved: true,
-      }).select().single()
+      // Check if match already exists for these teams this week
+      const { data: existingMatches } = await supabase
+        .from('matches')
+        .select('id')
+        .eq('division', division)
+        .eq('week', week)
+        .eq('team1_id', sortedIds[0])
+        .eq('team2_id', sortedIds[1])
+      
+      let match
+      
+      if (existingMatches && existingMatches.length > 0) {
+        // Use existing match - just add stats to it
+        match = existingMatches[0]
+        
+        // Delete any existing games/stats for this match (in case of re-upload)
+        await supabase.from('games').delete().eq('match_id', match.id)
+      } else {
+        // Create new match record
+        const { data: newMatch, error: matchError } = await supabase.from('matches').insert({
+          division,
+          week,
+          team1_id: sortedIds[0],
+          team2_id: sortedIds[1],
+          team1_maps: isTeam0First ? preview.team0Wins : preview.team1Wins,
+          team2_maps: isTeam0First ? preview.team1Wins : preview.team0Wins,
+          admin_approved: true,
+        }).select().single()
 
-      if (matchError) throw matchError
+        if (matchError) throw matchError
+        match = newMatch
+      }
 
       // Create game records
       for (let i = 0; i < preview.games.length; i++) {
