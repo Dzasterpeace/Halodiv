@@ -97,16 +97,18 @@ export default function Home() {
       {/* Navigation */}
       <nav className="border-b border-cyan-500/20 bg-black/40 backdrop-blur sticky top-0 z-50">
         <div className="max-w-6xl mx-auto px-4">
-          <div className="flex gap-1">
+          <div className="flex gap-1 overflow-x-auto">
             {[
               { id: 'standings', label: 'Standings' },
+              { id: 'fixtures', label: 'Fixtures' },
+              { id: 'leaderboards', label: 'Leaderboards' },
               { id: 'submit', label: 'Submit Result' },
               { id: 'admin', label: 'Admin' },
             ].map(tab => (
               <button
                 key={tab.id}
                 onClick={() => setView(tab.id)}
-                className={`px-6 py-4 text-sm font-semibold tracking-wide transition-all relative
+                className={`px-6 py-4 text-sm font-semibold tracking-wide transition-all relative whitespace-nowrap
                   ${view === tab.id 
                     ? 'text-cyan-400' 
                     : 'text-gray-500 hover:text-gray-300'}`}
@@ -152,6 +154,22 @@ export default function Home() {
           <SubmitResultForm 
             teams={teams}
             onSubmitSuccess={fetchData}
+          />
+        )}
+
+        {view === 'fixtures' && (
+          <FixturesView 
+            selectedDivision={selectedDivision}
+            setSelectedDivision={setSelectedDivision}
+            teams={teams}
+            getTeamName={getTeamName}
+          />
+        )}
+
+        {view === 'leaderboards' && (
+          <LeaderboardsView 
+            selectedDivision={selectedDivision}
+            setSelectedDivision={setSelectedDivision}
           />
         )}
 
@@ -949,6 +967,412 @@ function AdminQuickAdd({ teams, onSuccess }) {
         >
           Add Result
         </button>
+      </div>
+    </div>
+  )
+}
+
+// Fixtures View Component
+function FixturesView({ selectedDivision, setSelectedDivision, teams, getTeamName }) {
+  const [fixtures, setFixtures] = useState([])
+  const [matches, setMatches] = useState([])
+  const [selectedWeek, setSelectedWeek] = useState(1)
+  const [expandedFixture, setExpandedFixture] = useState(null)
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    fetchFixtures()
+  }, [selectedDivision])
+
+  const fetchFixtures = async () => {
+    setLoading(true)
+    const [fixturesRes, matchesRes] = await Promise.all([
+      supabase
+        .from('fixtures')
+        .select('*')
+        .eq('division', selectedDivision)
+        .order('week')
+        .order('created_at'),
+      supabase
+        .from('matches')
+        .select('*')
+        .eq('division', selectedDivision)
+    ])
+    
+    if (fixturesRes.data) setFixtures(fixturesRes.data)
+    if (matchesRes.data) setMatches(matchesRes.data)
+    setLoading(false)
+  }
+
+  const getFixtureResult = (fixture) => {
+    const match = matches.find(m => 
+      ((m.team1_id === fixture.team1_id && m.team2_id === fixture.team2_id) ||
+      (m.team1_id === fixture.team2_id && m.team2_id === fixture.team1_id)) &&
+      m.week === fixture.week
+    )
+    return match
+  }
+
+  const weekFixtures = fixtures.filter(f => f.week === selectedWeek)
+
+  return (
+    <div className="space-y-8">
+      {/* Division Tabs */}
+      <div className="flex gap-2 flex-wrap">
+        {[1, 2, 3, 4].map(div => (
+          <button
+            key={div}
+            onClick={() => setSelectedDivision(div)}
+            className={`px-5 py-2.5 rounded-lg font-semibold text-sm transition-all
+              ${selectedDivision === div 
+                ? 'bg-gradient-to-r from-cyan-500 to-blue-600 text-white shadow-lg shadow-cyan-500/25' 
+                : 'bg-white/5 text-gray-400 hover:bg-white/10 hover:text-white'}`}
+          >
+            {divisionInfo[div].name}
+          </button>
+        ))}
+      </div>
+
+      {/* Week Tabs */}
+      <div className="flex gap-2">
+        {[1, 2, 3, 4, 5].map(week => (
+          <button
+            key={week}
+            onClick={() => setSelectedWeek(week)}
+            className={`px-4 py-2 rounded-lg font-semibold text-sm transition-all
+              ${selectedWeek === week 
+                ? 'bg-white/20 text-white' 
+                : 'bg-white/5 text-gray-400 hover:bg-white/10'}`}
+          >
+            Week {week}
+          </button>
+        ))}
+      </div>
+
+      {/* Fixtures List */}
+      <div className="bg-gradient-to-b from-white/5 to-transparent rounded-xl border border-white/10 overflow-hidden">
+        <div className="p-6 border-b border-white/10">
+          <h2 className="text-xl font-bold">{divisionInfo[selectedDivision].name} - Week {selectedWeek}</h2>
+          <p className="text-gray-500 text-sm mt-1">
+            {weekFixtures.length} fixtures scheduled
+          </p>
+        </div>
+        
+        <div className="p-6">
+          {loading ? (
+            <p className="text-gray-500 text-center py-8">Loading fixtures...</p>
+          ) : weekFixtures.length === 0 ? (
+            <p className="text-gray-500 text-center py-8">No fixtures scheduled for this week</p>
+          ) : (
+            <div className="space-y-3">
+              {weekFixtures.map((fixture, idx) => {
+                const result = getFixtureResult(fixture)
+                const isExpanded = expandedFixture === fixture.id
+                
+                return (
+                  <div key={fixture.id} className="bg-black/40 rounded-lg overflow-hidden">
+                    <div 
+                      className="p-4 flex items-center justify-between cursor-pointer hover:bg-white/5"
+                      onClick={() => setExpandedFixture(isExpanded ? null : fixture.id)}
+                    >
+                      <div className="flex items-center gap-4 flex-1">
+                        <div className="flex-1 flex items-center justify-center gap-4">
+                          <span className={`font-semibold text-right flex-1 ${result && result.team1_maps > result.team2_maps ? 'text-green-400' : ''}`}>
+                            {getTeamName(fixture.team1_id)}
+                          </span>
+                          {result ? (
+                            <span className="font-mono bg-white/10 px-3 py-1 rounded">
+                              <span className={result.team1_maps > result.team2_maps ? 'text-green-400' : ''}>{result.team1_maps}</span>
+                              <span className="text-gray-500 mx-1">-</span>
+                              <span className={result.team2_maps > result.team1_maps ? 'text-green-400' : ''}>{result.team2_maps}</span>
+                            </span>
+                          ) : (
+                            <span className="text-gray-500 text-sm px-3">vs</span>
+                          )}
+                          <span className={`font-semibold text-left flex-1 ${result && result.team2_maps > result.team1_maps ? 'text-green-400' : ''}`}>
+                            {getTeamName(fixture.team2_id)}
+                          </span>
+                        </div>
+                      </div>
+                      <div className="ml-4">
+                        {result ? (
+                          <span className="text-green-400 text-xs">✓ Completed</span>
+                        ) : (
+                          <span className="text-yellow-400 text-xs">Scheduled</span>
+                        )}
+                      </div>
+                    </div>
+                    
+                    {isExpanded && result && (
+                      <FixtureDetails matchId={result.id} teams={teams} getTeamName={getTeamName} />
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// Fixture Details Component (expanded view with game-by-game stats)
+function FixtureDetails({ matchId, teams, getTeamName }) {
+  const [games, setGames] = useState([])
+  const [playerStats, setPlayerStats] = useState([])
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    fetchDetails()
+  }, [matchId])
+
+  const fetchDetails = async () => {
+    const [gamesRes, statsRes] = await Promise.all([
+      supabase.from('games').select('*').eq('match_id', matchId).order('game_number'),
+      supabase.from('player_stats').select('*').eq('match_id', matchId)
+    ])
+    
+    if (gamesRes.data) setGames(gamesRes.data)
+    if (statsRes.data) setPlayerStats(statsRes.data)
+    setLoading(false)
+  }
+
+  if (loading) {
+    return <div className="p-4 text-gray-500 text-center">Loading details...</div>
+  }
+
+  if (games.length === 0) {
+    return (
+      <div className="p-4 border-t border-white/10 text-gray-500 text-center text-sm">
+        No detailed stats available yet. Upload Halo Data Hive export in Admin panel.
+      </div>
+    )
+  }
+
+  // Group stats by game
+  const statsByGame = games.map(game => ({
+    game,
+    stats: playerStats.filter(ps => ps.game_id === game.id)
+  }))
+
+  // Aggregate series stats
+  const seriesStats = {}
+  playerStats.forEach(ps => {
+    if (!seriesStats[ps.player_gamertag]) {
+      seriesStats[ps.player_gamertag] = {
+        gamertag: ps.player_gamertag,
+        team_id: ps.team_id,
+        kills: 0, deaths: 0, assists: 0, damage: 0
+      }
+    }
+    seriesStats[ps.player_gamertag].kills += ps.kills || 0
+    seriesStats[ps.player_gamertag].deaths += ps.deaths || 0
+    seriesStats[ps.player_gamertag].assists += ps.assists || 0
+    seriesStats[ps.player_gamertag].damage += ps.damage || 0
+  })
+
+  return (
+    <div className="border-t border-white/10">
+      {/* Series Summary */}
+      <div className="p-4 bg-white/5">
+        <h4 className="text-sm font-semibold text-gray-400 mb-3">Series Stats</h4>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="text-xs text-gray-500 uppercase">
+                <th className="text-left py-2">Player</th>
+                <th className="text-center py-2">K</th>
+                <th className="text-center py-2">D</th>
+                <th className="text-center py-2">A</th>
+                <th className="text-center py-2">K/D</th>
+                <th className="text-center py-2">Damage</th>
+              </tr>
+            </thead>
+            <tbody>
+              {Object.values(seriesStats)
+                .sort((a, b) => b.kills - a.kills)
+                .map(player => (
+                  <tr key={player.gamertag} className="border-t border-white/5">
+                    <td className="py-2 font-medium">{player.gamertag}</td>
+                    <td className="text-center text-green-400">{player.kills}</td>
+                    <td className="text-center text-red-400">{player.deaths}</td>
+                    <td className="text-center text-gray-400">{player.assists}</td>
+                    <td className="text-center">{player.deaths > 0 ? (player.kills / player.deaths).toFixed(2) : player.kills}</td>
+                    <td className="text-center text-gray-400">{player.damage.toLocaleString()}</td>
+                  </tr>
+                ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* Individual Games */}
+      {statsByGame.map(({ game, stats }) => (
+        <div key={game.id} className="p-4 border-t border-white/10">
+          <div className="flex items-center justify-between mb-3">
+            <h4 className="text-sm font-semibold">
+              Game {game.game_number}: {game.game_variant} on {game.map}
+            </h4>
+            <span className="text-xs text-gray-500">{game.duration}</span>
+          </div>
+          {stats.length > 0 ? (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-xs text-gray-500 uppercase">
+                    <th className="text-left py-1">Player</th>
+                    <th className="text-center py-1">K</th>
+                    <th className="text-center py-1">D</th>
+                    <th className="text-center py-1">A</th>
+                    <th className="text-center py-1">Damage</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {stats.sort((a, b) => b.kills - a.kills).map(ps => (
+                    <tr key={ps.id} className="border-t border-white/5">
+                      <td className="py-1">{ps.player_gamertag}</td>
+                      <td className="text-center text-green-400">{ps.kills}</td>
+                      <td className="text-center text-red-400">{ps.deaths}</td>
+                      <td className="text-center text-gray-400">{ps.assists}</td>
+                      <td className="text-center text-gray-400">{ps.damage?.toLocaleString()}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <p className="text-gray-500 text-xs">No player stats for this game</p>
+          )}
+        </div>
+      ))}
+    </div>
+  )
+}
+
+// Leaderboards View Component
+function LeaderboardsView({ selectedDivision, setSelectedDivision }) {
+  const [leaderboard, setLeaderboard] = useState([])
+  const [sortBy, setSortBy] = useState('overall_kd')
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    fetchLeaderboard()
+  }, [selectedDivision])
+
+  const fetchLeaderboard = async () => {
+    setLoading(true)
+    const { data } = await supabase
+      .from('division_leaderboards')
+      .select('*')
+      .eq('division', selectedDivision)
+    
+    if (data) setLeaderboard(data)
+    setLoading(false)
+  }
+
+  const sortedLeaderboard = [...leaderboard].sort((a, b) => {
+    if (sortBy === 'overall_kd') return (b.overall_kd || 0) - (a.overall_kd || 0)
+    if (sortBy === 'total_kills') return (b.total_kills || 0) - (a.total_kills || 0)
+    if (sortBy === 'total_damage') return (b.total_damage || 0) - (a.total_damage || 0)
+    if (sortBy === 'avg_kills_per_game') return (b.avg_kills_per_game || 0) - (a.avg_kills_per_game || 0)
+    if (sortBy === 'overall_accuracy') return (b.overall_accuracy || 0) - (a.overall_accuracy || 0)
+    return 0
+  })
+
+  return (
+    <div className="space-y-8">
+      {/* Division Tabs */}
+      <div className="flex gap-2 flex-wrap">
+        {[1, 2, 3, 4].map(div => (
+          <button
+            key={div}
+            onClick={() => setSelectedDivision(div)}
+            className={`px-5 py-2.5 rounded-lg font-semibold text-sm transition-all
+              ${selectedDivision === div 
+                ? 'bg-gradient-to-r from-cyan-500 to-blue-600 text-white shadow-lg shadow-cyan-500/25' 
+                : 'bg-white/5 text-gray-400 hover:bg-white/10 hover:text-white'}`}
+          >
+            {divisionInfo[div].name}
+          </button>
+        ))}
+      </div>
+
+      {/* Leaderboard Table */}
+      <div className="bg-gradient-to-b from-white/5 to-transparent rounded-xl border border-white/10 overflow-hidden">
+        <div className="p-6 border-b border-white/10">
+          <h2 className="text-xl font-bold">{divisionInfo[selectedDivision].name} Leaderboard</h2>
+          <p className="text-gray-500 text-sm mt-1">
+            Player stats aggregated across all matches
+          </p>
+        </div>
+        
+        <div className="p-6">
+          {loading ? (
+            <p className="text-gray-500 text-center py-8">Loading leaderboard...</p>
+          ) : leaderboard.length === 0 ? (
+            <p className="text-gray-500 text-center py-8">No player stats recorded yet</p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead>
+                  <tr className="text-xs uppercase tracking-wider text-gray-500 border-b border-white/10">
+                    <th className="text-left py-4 px-2">#</th>
+                    <th className="text-left py-4 px-2">Player</th>
+                    <th className="text-left py-4 px-2">Team</th>
+                    <th className="text-center py-4 px-2">Games</th>
+                    <th 
+                      className={`text-center py-4 px-2 cursor-pointer hover:text-cyan-400 ${sortBy === 'total_kills' ? 'text-cyan-400' : ''}`}
+                      onClick={() => setSortBy('total_kills')}
+                    >
+                      Kills {sortBy === 'total_kills' && '▼'}
+                    </th>
+                    <th className="text-center py-4 px-2">Deaths</th>
+                    <th className="text-center py-4 px-2">Assists</th>
+                    <th 
+                      className={`text-center py-4 px-2 cursor-pointer hover:text-cyan-400 ${sortBy === 'overall_kd' ? 'text-cyan-400' : ''}`}
+                      onClick={() => setSortBy('overall_kd')}
+                    >
+                      K/D {sortBy === 'overall_kd' && '▼'}
+                    </th>
+                    <th 
+                      className={`text-center py-4 px-2 cursor-pointer hover:text-cyan-400 ${sortBy === 'total_damage' ? 'text-cyan-400' : ''}`}
+                      onClick={() => setSortBy('total_damage')}
+                    >
+                      Damage {sortBy === 'total_damage' && '▼'}
+                    </th>
+                    <th 
+                      className={`text-center py-4 px-2 cursor-pointer hover:text-cyan-400 ${sortBy === 'avg_kills_per_game' ? 'text-cyan-400' : ''}`}
+                      onClick={() => setSortBy('avg_kills_per_game')}
+                    >
+                      Avg K {sortBy === 'avg_kills_per_game' && '▼'}
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {sortedLeaderboard.map((player, idx) => (
+                    <tr key={player.player_gamertag} className="border-b border-white/5 hover:bg-white/5">
+                      <td className="py-3 px-2">
+                        <span className={`font-bold ${idx === 0 ? 'text-yellow-400' : idx === 1 ? 'text-gray-400' : idx === 2 ? 'text-amber-600' : 'text-gray-600'}`}>
+                          {idx + 1}
+                        </span>
+                      </td>
+                      <td className="py-3 px-2 font-semibold">{player.player_gamertag}</td>
+                      <td className="py-3 px-2 text-gray-400 text-sm">{player.team_name}</td>
+                      <td className="py-3 px-2 text-center text-gray-400">{player.games_played}</td>
+                      <td className="py-3 px-2 text-center text-green-400 font-semibold">{player.total_kills}</td>
+                      <td className="py-3 px-2 text-center text-red-400">{player.total_deaths}</td>
+                      <td className="py-3 px-2 text-center text-gray-400">{player.total_assists}</td>
+                      <td className="py-3 px-2 text-center font-bold">{player.overall_kd?.toFixed(2)}</td>
+                      <td className="py-3 px-2 text-center text-gray-400">{player.total_damage?.toLocaleString()}</td>
+                      <td className="py-3 px-2 text-center text-gray-400">{player.avg_kills_per_game?.toFixed(1)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   )
