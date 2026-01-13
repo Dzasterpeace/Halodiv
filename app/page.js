@@ -1041,24 +1041,43 @@ function AdminStatsUpload({ teams, onSuccess }) {
       const allPlayers = games.flatMap(g => g.players)
       const team0Players = allPlayers.filter(p => p.haloTeam === games[0].team0Name)
       const team1Players = allPlayers.filter(p => p.haloTeam === games[0].team1Name)
+      
+      // Get unique gamertags per team
+      const team0Gamertags = [...new Set(team0Players.map(p => p.gamertag))]
+      const team1Gamertags = [...new Set(team1Players.map(p => p.gamertag))]
 
-      // Match to league teams by gamertag (case-insensitive partial match)
-      const findTeam = (players) => {
+      // Match to league teams by gamertag - count matches per team
+      const findTeam = (gamertags) => {
+        let bestMatch = null
+        let bestMatchCount = 0
+        
         for (const team of divTeams) {
           const teamPlayers = team.players || []
-          for (const player of players) {
-            const match = teamPlayers.some(tp => 
-              tp.toLowerCase().includes(player.gamertag.toLowerCase()) ||
-              player.gamertag.toLowerCase().includes(tp.toLowerCase())
-            )
-            if (match) return team
+          let matchCount = 0
+          
+          for (const gt of gamertags) {
+            const gtLower = gt.toLowerCase()
+            const hasMatch = teamPlayers.some(tp => {
+              const tpLower = tp.toLowerCase()
+              // Exact match or substantial overlap
+              return tpLower === gtLower || 
+                     tpLower.includes(gtLower) || 
+                     gtLower.includes(tpLower)
+            })
+            if (hasMatch) matchCount++
+          }
+          
+          if (matchCount > bestMatchCount) {
+            bestMatchCount = matchCount
+            bestMatch = team
           }
         }
-        return null
+        
+        return bestMatchCount >= 1 ? bestMatch : null
       }
 
-      const matchedTeam0 = findTeam(team0Players)
-      const matchedTeam1 = findTeam(team1Players)
+      const matchedTeam0 = findTeam(team0Gamertags)
+      const matchedTeam1 = findTeam(team1Gamertags)
 
       // Calculate series score
       let team0Wins = 0, team1Wins = 0
@@ -1071,6 +1090,8 @@ function AdminStatsUpload({ teams, onSuccess }) {
         games,
         team0Name: games[0].team0Name,
         team1Name: games[0].team1Name,
+        team0Gamertags,
+        team1Gamertags,
         matchedTeam0,
         matchedTeam1,
         team0Wins,
@@ -1224,32 +1245,73 @@ function AdminStatsUpload({ teams, onSuccess }) {
         )}
 
         {preview && (
-          <div className="bg-black/40 rounded-lg p-4 space-y-3">
+          <div className="bg-black/40 rounded-lg p-4 space-y-4">
             <div className="text-sm font-semibold">Preview</div>
-            <div className="flex items-center justify-center gap-4">
-              <div className="text-right">
-                <div className={preview.matchedTeam0 ? 'text-green-400' : 'text-red-400'}>
-                  {preview.matchedTeam0?.name || preview.team0Name}
-                </div>
-                {!preview.matchedTeam0 && <div className="text-xs text-red-400">Not matched</div>}
-              </div>
-              <div className="font-mono bg-white/10 px-3 py-1 rounded">
-                {preview.team0Wins} - {preview.team1Wins}
-              </div>
-              <div className="text-left">
-                <div className={preview.matchedTeam1 ? 'text-green-400' : 'text-red-400'}>
-                  {preview.matchedTeam1?.name || preview.team1Name}
-                </div>
-                {!preview.matchedTeam1 && <div className="text-xs text-red-400">Not matched</div>}
+            
+            {/* Team 0 (Left side) */}
+            <div className="bg-white/5 rounded p-3 space-y-2">
+              <div className="text-xs text-gray-500">Halo Team: {preview.team0Name}</div>
+              <div className="text-xs text-gray-400">Players: {preview.team0Gamertags?.join(', ')}</div>
+              <div className="flex items-center gap-2">
+                <span className="text-sm">Match to:</span>
+                <select
+                  value={preview.matchedTeam0?.id || ''}
+                  onChange={(e) => {
+                    const team = divTeams.find(t => t.id === e.target.value)
+                    setPreview({...preview, matchedTeam0: team || null})
+                  }}
+                  className="flex-1 px-2 py-1 bg-[#1a1a2e] border border-white/10 rounded text-sm"
+                >
+                  <option value="">-- Select Team --</option>
+                  {divTeams.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+                </select>
+                {preview.matchedTeam0 && <span className="text-green-400 text-sm">✓</span>}
               </div>
             </div>
+
+            {/* Score */}
+            <div className="flex items-center justify-center gap-4 py-2">
+              <span className={`font-bold ${preview.team0Wins > preview.team1Wins ? 'text-green-400' : ''}`}>
+                {preview.matchedTeam0?.name || '???'}
+              </span>
+              <div className="font-mono bg-white/10 px-4 py-2 rounded text-lg">
+                <span className={preview.team0Wins > preview.team1Wins ? 'text-green-400' : ''}>{preview.team0Wins}</span>
+                <span className="text-gray-500 mx-2">-</span>
+                <span className={preview.team1Wins > preview.team0Wins ? 'text-green-400' : ''}>{preview.team1Wins}</span>
+              </div>
+              <span className={`font-bold ${preview.team1Wins > preview.team0Wins ? 'text-green-400' : ''}`}>
+                {preview.matchedTeam1?.name || '???'}
+              </span>
+            </div>
+
+            {/* Team 1 (Right side) */}
+            <div className="bg-white/5 rounded p-3 space-y-2">
+              <div className="text-xs text-gray-500">Halo Team: {preview.team1Name}</div>
+              <div className="text-xs text-gray-400">Players: {preview.team1Gamertags?.join(', ')}</div>
+              <div className="flex items-center gap-2">
+                <span className="text-sm">Match to:</span>
+                <select
+                  value={preview.matchedTeam1?.id || ''}
+                  onChange={(e) => {
+                    const team = divTeams.find(t => t.id === e.target.value)
+                    setPreview({...preview, matchedTeam1: team || null})
+                  }}
+                  className="flex-1 px-2 py-1 bg-[#1a1a2e] border border-white/10 rounded text-sm"
+                >
+                  <option value="">-- Select Team --</option>
+                  {divTeams.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+                </select>
+                {preview.matchedTeam1 && <span className="text-green-400 text-sm">✓</span>}
+              </div>
+            </div>
+
             <div className="text-xs text-gray-500 text-center">
               {preview.games.length} games • {preview.games.flatMap(g => g.players).length / preview.games.length} players per game
             </div>
             
             <button
               onClick={uploadStats}
-              disabled={!preview.matchedTeam0 || !preview.matchedTeam1 || parsing}
+              disabled={!preview.matchedTeam0 || !preview.matchedTeam1 || preview.matchedTeam0.id === preview.matchedTeam1.id || parsing}
               className="w-full py-3 bg-gradient-to-r from-purple-500 to-pink-600 rounded-lg font-bold disabled:opacity-50"
             >
               {parsing ? 'Uploading...' : 'Upload Stats'}
