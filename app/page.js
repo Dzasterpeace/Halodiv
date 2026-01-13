@@ -1046,7 +1046,21 @@ function AdminStatsUpload({ teams, onSuccess }) {
       const team0Gamertags = [...new Set(team0Players.map(p => p.gamertag))]
       const team1Gamertags = [...new Set(team1Players.map(p => p.gamertag))]
 
-      // Match to league teams by gamertag - count matches per team
+      // Fetch existing player_stats to help with matching
+      const { data: existingStats } = await supabase
+        .from('player_stats')
+        .select('player_gamertag, team_id')
+        .in('team_id', divTeams.map(t => t.id))
+      
+      // Build a map of gamertag -> team_id from historical data
+      const gamertagToTeam = {}
+      if (existingStats) {
+        existingStats.forEach(stat => {
+          gamertagToTeam[stat.player_gamertag.toLowerCase()] = stat.team_id
+        })
+      }
+
+      // Match to league teams by gamertag - check both team.players array AND historical stats
       const findTeam = (gamertags) => {
         let bestMatch = null
         let bestMatchCount = 0
@@ -1057,9 +1071,16 @@ function AdminStatsUpload({ teams, onSuccess }) {
           
           for (const gt of gamertags) {
             const gtLower = gt.toLowerCase()
+            
+            // Check historical player_stats first
+            if (gamertagToTeam[gtLower] === team.id) {
+              matchCount++
+              continue
+            }
+            
+            // Fall back to team.players array
             const hasMatch = teamPlayers.some(tp => {
               const tpLower = tp.toLowerCase()
-              // Exact match or substantial overlap
               return tpLower === gtLower || 
                      tpLower.includes(gtLower) || 
                      gtLower.includes(tpLower)
