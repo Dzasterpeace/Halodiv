@@ -1027,6 +1027,9 @@ function AdminPanel({ isAdmin, setIsAdmin, pendingSubmissions, teams, getTeamNam
       {/* Stats Upload */}
       <AdminStatsUpload teams={teams} onSuccess={onDataChange} />
 
+      {/* Leaf Stats Upload */}
+      <LeafStatsUpload teams={teams} onSuccess={onDataChange} />
+
       {/* Quick Add */}
       <AdminQuickAdd teams={teams} onSuccess={onDataChange} />
     </div>
@@ -1582,6 +1585,447 @@ function AdminStatsUpload({ teams, onSuccess }) {
               onClick={uploadStats}
               disabled={!preview.matchedTeam0 || !preview.matchedTeam1 || preview.matchedTeam0.id === preview.matchedTeam1.id || parsing}
               className="w-full py-3 bg-gradient-to-r from-purple-500 to-pink-600 rounded-lg font-bold disabled:opacity-50"
+            >
+              {parsing ? 'Uploading...' : 'Upload Stats'}
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// Leaf Stats Upload Component
+function LeafStatsUpload({ teams, onSuccess }) {
+  const [files, setFiles] = useState([])
+  const [division, setDivision] = useState(1)
+  const [week, setWeek] = useState(1)
+  const [parsing, setParsing] = useState(false)
+  const [preview, setPreview] = useState(null)
+  const [error, setError] = useState(null)
+  const [success, setSuccess] = useState(null)
+
+  const divTeams = teams.filter(t => t.division === division)
+
+  const parseFiles = async (e) => {
+    const selectedFiles = Array.from(e.target.files)
+    if (selectedFiles.length === 0) return
+    
+    setFiles(selectedFiles)
+    setParsing(true)
+    setError(null)
+    setPreview(null)
+
+    try {
+      const allGames = []
+      
+      for (const file of selectedFiles) {
+        const text = await file.text()
+        const lines = text.split('\n').filter(l => l.trim())
+        const headers = lines[0].split(',').map(h => h.trim().replace(/"/g, ''))
+        
+        const rows = lines.slice(1).map(line => {
+          const values = []
+          let current = ''
+          let inQuotes = false
+          
+          for (const char of line) {
+            if (char === '"') {
+              inQuotes = !inQuotes
+            } else if (char === ',' && !inQuotes) {
+              values.push(current.trim())
+              current = ''
+            } else {
+              current += char
+            }
+          }
+          values.push(current.trim())
+          
+          const obj = {}
+          headers.forEach((h, i) => {
+            obj[h] = values[i] || ''
+          })
+          return obj
+        })
+        
+        if (rows.length === 0) continue
+        
+        // Get game info from first row
+        const firstRow = rows[0]
+        const matchId = firstRow.MatchId
+        const map = firstRow.Map?.replace(' - Ranked', '') || 'Unknown'
+        const category = firstRow.Category || 'Unknown'
+        const lengthSeconds = parseInt(firstRow.LengthSeconds) || 0
+        
+        // Group players by team outcome for THIS game
+        const winningPlayers = rows.filter(r => r.Outcome === 'Win')
+        const losingPlayers = rows.filter(r => r.Outcome === 'Loss')
+        
+        // Get team scores
+        const winnerScore = parseInt(winningPlayers[0]?.TeamScore) || 0
+        const loserScore = parseInt(losingPlayers[0]?.TeamScore) || 0
+        
+        allGames.push({
+          matchId,
+          map,
+          variant: category,
+          duration: `${Math.floor(lengthSeconds / 60)}:${String(lengthSeconds % 60).padStart(2, '0')}`,
+          winnerScore,
+          loserScore,
+          winningGamertags: winningPlayers.map(p => p.Player),
+          losingGamertags: losingPlayers.map(p => p.Player),
+          players: [
+            ...winningPlayers.map(p => ({
+              gamertag: p.Player,
+              won: true,
+              kills: parseInt(p.Kills) || 0,
+              deaths: parseInt(p.Deaths) || 0,
+              assists: parseInt(p.Assists) || 0,
+              damage: parseInt(p.DamageDone) || 0,
+              damageTaken: parseInt(p.DamageTaken) || 0,
+              accuracy: parseFloat(p.Accuracy) || 0,
+              shotsFired: parseInt(p.ShotsFired) || 0,
+              shotsLanded: parseInt(p.ShotsLanded) || 0,
+            })),
+            ...losingPlayers.map(p => ({
+              gamertag: p.Player,
+              won: false,
+              kills: parseInt(p.Kills) || 0,
+              deaths: parseInt(p.Deaths) || 0,
+              assists: parseInt(p.Assists) || 0,
+              damage: parseInt(p.DamageDone) || 0,
+              damageTaken: parseInt(p.DamageTaken) || 0,
+              accuracy: parseFloat(p.Accuracy) || 0,
+              shotsFired: parseInt(p.ShotsFired) || 0,
+              shotsLanded: parseInt(p.ShotsLanded) || 0,
+            }))
+          ]
+        })
+      }
+      
+      // Sort games by matchId (chronological)
+      allGames.sort((a, b) => a.matchId.localeCompare(b.matchId))
+      
+      // Identify the two teams by looking at who played together in the first game
+      const firstGame = allGames[0]
+      const teamAGamertags = firstGame.winningGamertags
+      const teamBGamertags = firstGame.losingGamertags
+      
+      // Now go through each game and determine which team won
+      // Team A is whoever has players from teamAGamertags on the winning side
+      const gamesWithTeams = allGames.map(game => {
+        const teamAWon = game.winningGamertags.some(gt => teamAGamertags.includes(gt))
+        return {
+          ...game,
+          team0Score: teamAWon ? game.winnerScore : game.loserScore,
+          team1Score: teamAWon ? game.loserScore : game.winnerScore,
+          teamAWon,
+          players: game.players.map(p => ({
+            ...p,
+            haloTeam: teamAGamertags.includes(p.gamertag) ? 'TeamA' : 'TeamB'
+          }))
+        }
+      })
+      
+      // Count series wins
+      const team0Wins = gamesWithTeams.filter(g => g.teamAWon).length
+      const team1Wins = gamesWithTeams.filter(g => !g.teamAWon).length
+      
+      // Try to match teams
+      const { data: existingStats } = await supabase
+        .from('player_stats')
+        .select('player_gamertag, team_id')
+      
+      const gamertagToTeam = {}
+      existingStats?.forEach(s => {
+        if (!gamertagToTeam[s.player_gamertag.toLowerCase()]) {
+          gamertagToTeam[s.player_gamertag.toLowerCase()] = s.team_id
+        }
+      })
+      
+      // Also check teams.players jsonb
+      divTeams.forEach(team => {
+        if (Array.isArray(team.players)) {
+          team.players.forEach(p => {
+            gamertagToTeam[p.toLowerCase()] = team.id
+          })
+        }
+      })
+      
+      let matchedTeam0 = null
+      let matchedTeam1 = null
+      
+      for (const gt of teamAGamertags) {
+        const teamId = gamertagToTeam[gt.toLowerCase()]
+        if (teamId) {
+          matchedTeam0 = divTeams.find(t => t.id === teamId)
+          if (matchedTeam0) break
+        }
+      }
+      
+      for (const gt of teamBGamertags) {
+        const teamId = gamertagToTeam[gt.toLowerCase()]
+        if (teamId) {
+          matchedTeam1 = divTeams.find(t => t.id === teamId)
+          if (matchedTeam1) break
+        }
+      }
+      
+      setPreview({
+        games: gamesWithTeams,
+        team0Name: 'Team A',
+        team1Name: 'Team B',
+        team0Gamertags: teamAGamertags,
+        team1Gamertags: teamBGamertags,
+        matchedTeam0,
+        matchedTeam1,
+        team0Wins,
+        team1Wins,
+      })
+    } catch (err) {
+      setError('Failed to parse files: ' + err.message)
+    }
+    
+    setParsing(false)
+  }
+
+  const uploadStats = async () => {
+    if (!preview || !preview.matchedTeam0 || !preview.matchedTeam1) {
+      setError('Could not match both teams. Please select teams manually.')
+      return
+    }
+
+    setParsing(true)
+    setError(null)
+
+    try {
+      const sortedIds = [preview.matchedTeam0.id, preview.matchedTeam1.id].sort()
+      const isTeam0First = preview.matchedTeam0.id === sortedIds[0]
+
+      // Check for existing match
+      const { data: existingMatches } = await supabase
+        .from('matches')
+        .select('id')
+        .eq('division', division)
+        .eq('week', week)
+        .eq('team1_id', sortedIds[0])
+        .eq('team2_id', sortedIds[1])
+      
+      let match
+      
+      if (existingMatches && existingMatches.length > 0) {
+        match = existingMatches[0]
+        await supabase.from('games').delete().eq('match_id', match.id)
+      } else {
+        const { data: newMatch, error: matchError } = await supabase.from('matches').insert({
+          division,
+          week,
+          team1_id: sortedIds[0],
+          team2_id: sortedIds[1],
+          team1_maps: isTeam0First ? preview.team0Wins : preview.team1Wins,
+          team2_maps: isTeam0First ? preview.team1Wins : preview.team0Wins,
+          admin_approved: true,
+        }).select().single()
+
+        if (matchError) throw matchError
+        match = newMatch
+      }
+
+      // Create game records
+      for (let i = 0; i < preview.games.length; i++) {
+        const game = preview.games[i]
+        
+        // Determine winner based on teamAWon flag
+        const gameWinner = game.teamAWon ? preview.matchedTeam0 : preview.matchedTeam1
+
+        const { data: gameRecord, error: gameError } = await supabase.from('games').insert({
+          match_id: match.id,
+          game_number: i + 1,
+          game_variant: game.variant,
+          map: game.map,
+          team1_score: isTeam0First ? game.team0Score : game.team1Score,
+          team2_score: isTeam0First ? game.team1Score : game.team0Score,
+          winner_team_id: gameWinner.id,
+          duration: game.duration,
+          halo_game_id: game.matchId,
+        }).select().single()
+
+        if (gameError) throw gameError
+
+        // Create player stats
+        const playerStats = game.players.map(p => {
+          const isTeamAPlayer = p.haloTeam === 'TeamA'
+          const playerTeam = isTeamAPlayer ? preview.matchedTeam0 : preview.matchedTeam1
+
+          return {
+            game_id: gameRecord.id,
+            match_id: match.id,
+            team_id: playerTeam.id,
+            player_gamertag: p.gamertag,
+            kills: p.kills,
+            deaths: p.deaths,
+            assists: p.assists,
+            damage: p.damage,
+            damage_taken: p.damageTaken,
+            accuracy: p.accuracy,
+            shots_fired: p.shotsFired,
+            shots_landed: p.shotsLanded,
+          }
+        })
+
+        const { error: statsError } = await supabase.from('player_stats').insert(playerStats)
+        if (statsError) throw statsError
+      }
+
+      setSuccess(`Uploaded ${preview.games.length} games with player stats!`)
+      setPreview(null)
+      setFiles([])
+      onSuccess()
+    } catch (err) {
+      setError('Failed to upload: ' + err.message)
+    }
+
+    setParsing(false)
+  }
+
+  return (
+    <div className="bg-gradient-to-b from-green-500/10 to-transparent rounded-xl border border-green-500/20 overflow-hidden">
+      <div className="p-6 border-b border-green-500/20">
+        <h3 className="text-lg font-bold text-green-400">🍃 Upload Leaf Stats</h3>
+        <p className="text-gray-500 text-sm">Upload individual game CSVs from Leaf</p>
+      </div>
+      <div className="p-6 space-y-4">
+        <div className="grid grid-cols-2 gap-4">
+          <select 
+            value={division} 
+            onChange={(e) => setDivision(Number(e.target.value))}
+            className="px-4 py-2 bg-[#1a1a2e] border border-white/10 rounded-lg text-white"
+          >
+            <option value={1}>Division One</option>
+            <option value={2}>Division Two</option>
+            <option value={3}>Division Three</option>
+            <option value={4}>Division Four</option>
+          </select>
+          <select 
+            value={week} 
+            onChange={(e) => setWeek(Number(e.target.value))}
+            className="px-4 py-2 bg-[#1a1a2e] border border-white/10 rounded-lg text-white"
+          >
+            {[1, 2, 3, 4, 5].map(w => <option key={w} value={w}>Week {w}</option>)}
+          </select>
+        </div>
+
+        <div className="border-2 border-dashed border-white/20 rounded-lg p-6 text-center">
+          <input
+            type="file"
+            accept=".csv"
+            multiple
+            onChange={parseFiles}
+            className="hidden"
+            id="leaf-upload"
+          />
+          <label htmlFor="leaf-upload" className="cursor-pointer">
+            {files.length > 0 ? (
+              <span className="text-green-400">{files.length} CSV files selected</span>
+            ) : (
+              <span className="text-gray-500">Click to select multiple .csv files</span>
+            )}
+          </label>
+        </div>
+
+        {parsing && <p className="text-gray-500 text-center">Parsing...</p>}
+
+        {error && (
+          <div className="p-3 bg-red-500/20 text-red-400 rounded-lg text-sm">
+            {error}
+          </div>
+        )}
+
+        {success && (
+          <div className="p-3 bg-green-500/20 text-green-400 rounded-lg text-sm">
+            {success}
+          </div>
+        )}
+
+        {preview && (
+          <div className="bg-black/40 rounded-lg p-4 space-y-4">
+            <div className="text-sm font-semibold">Preview</div>
+            
+            {/* Team 0 */}
+            <div className="bg-white/5 rounded p-3 space-y-2">
+              <div className="text-xs text-gray-400">Team A Players: {preview.team0Gamertags?.join(', ')}</div>
+              <div className="flex items-center gap-2">
+                <span className="text-sm">Match to:</span>
+                <select
+                  value={preview.matchedTeam0?.id || ''}
+                  onChange={(e) => {
+                    const team = divTeams.find(t => t.id === e.target.value)
+                    setPreview({...preview, matchedTeam0: team || null})
+                  }}
+                  className="flex-1 px-2 py-1 bg-[#1a1a2e] border border-white/10 rounded text-sm"
+                >
+                  <option value="">-- Select Team --</option>
+                  {divTeams.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+                </select>
+                {preview.matchedTeam0 && <span className="text-green-400 text-sm">✓</span>}
+              </div>
+            </div>
+
+            {/* Score */}
+            <div className="flex items-center justify-center gap-4 py-2">
+              <span className={`font-bold ${preview.team0Wins > preview.team1Wins ? 'text-green-400' : ''}`}>
+                {preview.matchedTeam0?.name || '???'}
+              </span>
+              <div className="font-mono bg-white/10 px-4 py-2 rounded text-lg">
+                <span className={preview.team0Wins > preview.team1Wins ? 'text-green-400' : ''}>{preview.team0Wins}</span>
+                <span className="text-gray-500 mx-2">-</span>
+                <span className={preview.team1Wins > preview.team0Wins ? 'text-green-400' : ''}>{preview.team1Wins}</span>
+              </div>
+              <span className={`font-bold ${preview.team1Wins > preview.team0Wins ? 'text-green-400' : ''}`}>
+                {preview.matchedTeam1?.name || '???'}
+              </span>
+            </div>
+
+            {/* Team 1 */}
+            <div className="bg-white/5 rounded p-3 space-y-2">
+              <div className="text-xs text-gray-400">Team B Players: {preview.team1Gamertags?.join(', ')}</div>
+              <div className="flex items-center gap-2">
+                <span className="text-sm">Match to:</span>
+                <select
+                  value={preview.matchedTeam1?.id || ''}
+                  onChange={(e) => {
+                    const team = divTeams.find(t => t.id === e.target.value)
+                    setPreview({...preview, matchedTeam1: team || null})
+                  }}
+                  className="flex-1 px-2 py-1 bg-[#1a1a2e] border border-white/10 rounded text-sm"
+                >
+                  <option value="">-- Select Team --</option>
+                  {divTeams.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+                </select>
+                {preview.matchedTeam1 && <span className="text-green-400 text-sm">✓</span>}
+              </div>
+            </div>
+
+            {/* Games list */}
+            <div className="text-xs text-gray-500 space-y-1">
+              <div className="font-semibold text-gray-400">Games:</div>
+              {preview.games.map((g, i) => (
+                <div key={i} className="flex justify-between">
+                  <span>Game {i + 1}: {g.variant} on {g.map}</span>
+                  <span>
+                    <span className={g.teamAWon ? 'text-green-400' : ''}>{g.team0Score}</span>
+                    <span className="mx-1">-</span>
+                    <span className={!g.teamAWon ? 'text-green-400' : ''}>{g.team1Score}</span>
+                    <span className="ml-2 text-gray-600">({g.teamAWon ? 'A' : 'B'})</span>
+                  </span>
+                </div>
+              ))}
+            </div>
+            
+            <button
+              onClick={uploadStats}
+              disabled={!preview.matchedTeam0 || !preview.matchedTeam1 || preview.matchedTeam0.id === preview.matchedTeam1.id || parsing}
+              className="w-full py-3 bg-gradient-to-r from-green-500 to-emerald-600 rounded-lg font-bold disabled:opacity-50"
             >
               {parsing ? 'Uploading...' : 'Upload Stats'}
             </button>
