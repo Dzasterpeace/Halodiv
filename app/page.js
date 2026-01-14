@@ -187,8 +187,45 @@ export default function Home() {
 
       {/* Footer */}
       <footer className="border-t border-white/10 mt-16">
-        <div className="max-w-6xl mx-auto px-4 py-8 text-center text-gray-600 text-sm">
-          Halo Divisional Championship • Season 1
+        <div className="max-w-6xl mx-auto px-4 py-10">
+          {/* Sponsors */}
+          <div className="flex items-center justify-center gap-8 mb-8">
+            <span className="text-xs text-gray-600 uppercase tracking-wider">Sponsored by</span>
+            <a href="https://punthub.co.uk" target="_blank" rel="noopener noreferrer" className="text-gray-400 hover:text-white transition-colors font-semibold">
+              PuntHub.co.uk
+            </a>
+            <a href="https://xcloudbot.co.uk" target="_blank" rel="noopener noreferrer" className="text-gray-400 hover:text-white transition-colors font-semibold">
+              xCloudBot.co.uk
+            </a>
+          </div>
+
+          {/* Get Involved */}
+          <div className="bg-white/5 rounded-xl p-6 mb-8">
+            <h3 className="text-lg font-bold text-center mb-4">Get Involved</h3>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 text-center text-sm">
+              <div>
+                <div className="text-gray-400 mb-1">Join the Community</div>
+                <a href="https://discord.gg/hdc" target="_blank" rel="noopener noreferrer" className="text-cyan-400 hover:text-cyan-300">
+                  Discord Server
+                </a>
+              </div>
+              <div>
+                <div className="text-gray-400 mb-1">Sponsorship & Collaboration</div>
+                <a href="mailto:EuropeanhaloDL@gmail.com" className="text-cyan-400 hover:text-cyan-300">
+                  EuropeanhaloDL@gmail.com
+                </a>
+              </div>
+              <div>
+                <div className="text-gray-400 mb-1">Contact</div>
+                <span className="text-gray-300">Phoenix (foinika) on Discord</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Copyright */}
+          <div className="text-center text-gray-600 text-sm">
+            Halo Divisional Championship • Season 1
+          </div>
         </div>
       </footer>
     </div>
@@ -257,8 +294,10 @@ function StandingsView({ selectedDivision, setSelectedDivision, standings, match
                   </td>
                   <td className="py-4 px-6">
                     <div className="font-semibold">{team.name}</div>
-                    <div className="text-xs text-gray-500">
-                      {Array.isArray(team.players) ? team.players.join(', ') : ''}
+                    <div className="text-xs text-gray-500 leading-relaxed">
+                      {Array.isArray(team.players) ? team.players.map((player, i) => (
+                        <div key={i}>{player}</div>
+                      )) : ''}
                     </div>
                   </td>
                   <td className="text-center py-4 px-4 font-bold text-green-400">{team.wins}</td>
