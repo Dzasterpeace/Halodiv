@@ -1867,7 +1867,6 @@ function LeafStatsUpload({ teams, onSuccess }) {
             assists: p.assists,
             damage: p.damage,
             damage_taken: p.damageTaken,
-            accuracy: p.accuracy,
             shots_fired: p.shotsFired,
             shots_landed: p.shotsLanded,
           }
