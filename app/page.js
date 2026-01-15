@@ -2343,6 +2343,8 @@ function LeaderboardsView({ selectedDivision, setSelectedDivision }) {
     if (sortBy === 'overall_kd') return (b.overall_kd || 0) - (a.overall_kd || 0)
     if (sortBy === 'total_kills') return (b.total_kills || 0) - (a.total_kills || 0)
     if (sortBy === 'total_damage') return (b.total_damage || 0) - (a.total_damage || 0)
+    if (sortBy === 'total_damage_taken') return (a.total_damage_taken || 0) - (b.total_damage_taken || 0) // Lower is better
+    if (sortBy === 'damage_diff') return (b.damage_diff || 0) - (a.damage_diff || 0)
     if (sortBy === 'avg_kills_per_game') return (b.avg_kills_per_game || 0) - (a.avg_kills_per_game || 0)
     if (sortBy === 'overall_accuracy') return (b.overall_accuracy || 0) - (a.overall_accuracy || 0)
     return 0
@@ -2407,7 +2409,19 @@ function LeaderboardsView({ selectedDivision, setSelectedDivision }) {
                       className={`text-center py-4 px-2 cursor-pointer hover:text-cyan-400 ${sortBy === 'total_damage' ? 'text-cyan-400' : ''}`}
                       onClick={() => setSortBy('total_damage')}
                     >
-                      Damage {sortBy === 'total_damage' && '▼'}
+                      Dmg {sortBy === 'total_damage' && '▼'}
+                    </th>
+                    <th 
+                      className={`text-center py-4 px-2 cursor-pointer hover:text-cyan-400 ${sortBy === 'total_damage_taken' ? 'text-cyan-400' : ''}`}
+                      onClick={() => setSortBy('total_damage_taken')}
+                    >
+                      Taken {sortBy === 'total_damage_taken' && '▲'}
+                    </th>
+                    <th 
+                      className={`text-center py-4 px-2 cursor-pointer hover:text-cyan-400 ${sortBy === 'damage_diff' ? 'text-cyan-400' : ''}`}
+                      onClick={() => setSortBy('damage_diff')}
+                    >
+                      +/- {sortBy === 'damage_diff' && '▼'}
                     </th>
                     <th 
                       className={`text-center py-4 px-2 cursor-pointer hover:text-cyan-400 ${sortBy === 'avg_kills_per_game' ? 'text-cyan-400' : ''}`}
@@ -2433,6 +2447,12 @@ function LeaderboardsView({ selectedDivision, setSelectedDivision }) {
                       <td className="py-3 px-2 text-center text-gray-400">{player.total_assists}</td>
                       <td className="py-3 px-2 text-center font-bold">{player.overall_kd?.toFixed(2)}</td>
                       <td className="py-3 px-2 text-center text-gray-400">{player.total_damage?.toLocaleString()}</td>
+                      <td className="py-3 px-2 text-center text-gray-400">{player.total_damage_taken?.toLocaleString()}</td>
+                      <td className="py-3 px-2 text-center">
+                        <span className={`font-semibold ${(player.damage_diff || 0) > 0 ? 'text-green-400' : (player.damage_diff || 0) < 0 ? 'text-red-400' : 'text-gray-500'}`}>
+                          {(player.damage_diff || 0) > 0 ? '+' : ''}{player.damage_diff?.toLocaleString()}
+                        </span>
+                      </td>
                       <td className="py-3 px-2 text-center text-gray-400">{player.avg_kills_per_game?.toFixed(1)}</td>
                     </tr>
                   ))}
