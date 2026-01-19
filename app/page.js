@@ -1983,8 +1983,21 @@ function LeafStatsUpload({ teams, onSuccess, showDivisionSelect = true }) {
         if (gameError) throw gameError
 
         const playerStats = game.players.map(p => {
-          const isTeamAPlayer = p.haloTeam === 'TeamA'
-          const playerTeam = isTeamAPlayer ? preview.matchedTeam0 : preview.matchedTeam1
+          // Match player to team by gamertag, not by which side they were on in Leaf
+          const gtLower = p.gamertag.toLowerCase()
+          const team0Players = (preview.matchedTeam0?.players || []).map(pl => pl.toLowerCase())
+          const team1Players = (preview.matchedTeam1?.players || []).map(pl => pl.toLowerCase())
+          
+          let playerTeam
+          if (team0Players.some(tp => tp.includes(gtLower) || gtLower.includes(tp))) {
+            playerTeam = preview.matchedTeam0
+          } else if (team1Players.some(tp => tp.includes(gtLower) || gtLower.includes(tp))) {
+            playerTeam = preview.matchedTeam1
+          } else {
+            // Fallback to haloTeam assignment if gamertag not found in rosters
+            const isTeamAPlayer = p.haloTeam === 'TeamA'
+            playerTeam = isTeamAPlayer ? preview.matchedTeam0 : preview.matchedTeam1
+          }
 
           return {
             game_id: gameRecord.id,
