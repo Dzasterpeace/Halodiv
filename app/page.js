@@ -540,9 +540,90 @@ function StandingsView({ selectedDivision, setSelectedDivision, standings, match
 
 // Team View Component
 function TeamView({ team, matches, getTeamName, onBack }) {
+  const [rosterStats, setRosterStats] = useState([])
+  const [expandedMatch, setExpandedMatch] = useState(null)
+  const [matchGames, setMatchGames] = useState({})
+  const [loading, setLoading] = useState(true)
+
   const teamMatches = matches.filter(m => 
     m.team1_id === team.id || m.team2_id === team.id
   )
+
+  useEffect(() => {
+    fetchRosterStats()
+  }, [team.id])
+
+  const fetchRosterStats = async () => {
+    setLoading(true)
+    
+    // Get all player stats for this team
+    const { data: stats } = await supabase
+      .from('player_stats')
+      .select('*')
+      .eq('team_id', team.id)
+    
+    if (stats && stats.length > 0) {
+      // Aggregate by player
+      const playerMap = {}
+      stats.forEach(s => {
+        const gt = s.player_gamertag
+        if (!playerMap[gt]) {
+          playerMap[gt] = {
+            gamertag: gt,
+            games: 0,
+            kills: 0,
+            deaths: 0,
+            assists: 0,
+            damage: 0,
+            damageTaken: 0,
+          }
+        }
+        playerMap[gt].games++
+        playerMap[gt].kills += s.kills || 0
+        playerMap[gt].deaths += s.deaths || 0
+        playerMap[gt].assists += s.assists || 0
+        playerMap[gt].damage += s.damage || 0
+        playerMap[gt].damageTaken += s.damage_taken || 0
+      })
+      
+      const roster = Object.values(playerMap).map(p => ({
+        ...p,
+        kd: p.deaths > 0 ? (p.kills / p.deaths).toFixed(2) : p.kills.toFixed(2),
+        kda: p.deaths > 0 ? ((p.kills + p.assists) / p.deaths).toFixed(2) : (p.kills + p.assists).toFixed(2),
+        avgDamage: p.games > 0 ? Math.round(p.damage / p.games) : 0,
+        damageDiff: p.damage - p.damageTaken,
+      }))
+      
+      roster.sort((a, b) => b.damageDiff - a.damageDiff)
+      setRosterStats(roster)
+    }
+    
+    setLoading(false)
+  }
+
+  const fetchMatchGames = async (matchId) => {
+    if (matchGames[matchId]) {
+      setExpandedMatch(expandedMatch === matchId ? null : matchId)
+      return
+    }
+    
+    const { data: games } = await supabase
+      .from('games')
+      .select('*')
+      .eq('match_id', matchId)
+      .order('game_number')
+    
+    const { data: stats } = await supabase
+      .from('player_stats')
+      .select('*')
+      .eq('match_id', matchId)
+    
+    setMatchGames(prev => ({
+      ...prev,
+      [matchId]: { games: games || [], stats: stats || [] }
+    }))
+    setExpandedMatch(matchId)
+  }
 
   return (
     <div className="space-y-6">
@@ -553,18 +634,70 @@ function TeamView({ team, matches, getTeamName, onBack }) {
         ← Back to standings
       </button>
       
+      {/* Team Header */}
       <div className="bg-gradient-to-b from-white/5 to-transparent rounded-xl border border-white/10 overflow-hidden">
         <div className="p-6 border-b border-white/10">
           <h2 className="text-2xl font-bold">{team.name}</h2>
-          <div className="flex gap-4 mt-2 text-gray-400">
-            {Array.isArray(team.players) && team.players.map((player, idx) => (
-              <span key={idx} className="text-sm">{player}</span>
-            ))}
-          </div>
+          <p className="text-gray-500 text-sm mt-1">Division {team.division}</p>
         </div>
         
+        {/* Roster Stats */}
         <div className="p-6">
-          <h3 className="text-lg font-semibold mb-4">Match History</h3>
+          <h3 className="text-lg font-semibold mb-4">Roster Stats</h3>
+          {loading ? (
+            <p className="text-gray-500 text-center py-4">Loading...</p>
+          ) : rosterStats.length === 0 ? (
+            <div className="text-gray-500 text-center py-4">
+              <p>No stats recorded yet</p>
+              <div className="flex flex-wrap gap-2 justify-center mt-2">
+                {Array.isArray(team.players) && team.players.map((player, idx) => (
+                  <span key={idx} className="text-sm bg-white/5 px-3 py-1 rounded">{player}</span>
+                ))}
+              </div>
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-xs uppercase tracking-wider text-gray-500 border-b border-white/10">
+                    <th className="text-left py-3 px-2">Player</th>
+                    <th className="text-center py-3 px-2">Games</th>
+                    <th className="text-center py-3 px-2">K</th>
+                    <th className="text-center py-3 px-2">D</th>
+                    <th className="text-center py-3 px-2">A</th>
+                    <th className="text-center py-3 px-2">K/D</th>
+                    <th className="text-center py-3 px-2">Avg Dmg</th>
+                    <th className="text-center py-3 px-2">Dmg +/-</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rosterStats.map((player, idx) => (
+                    <tr key={player.gamertag} className="border-b border-white/5">
+                      <td className="py-3 px-2 font-medium">{player.gamertag}</td>
+                      <td className="text-center py-3 px-2 text-gray-400">{player.games}</td>
+                      <td className="text-center py-3 px-2 text-green-400">{player.kills}</td>
+                      <td className="text-center py-3 px-2 text-red-400">{player.deaths}</td>
+                      <td className="text-center py-3 px-2 text-gray-400">{player.assists}</td>
+                      <td className="text-center py-3 px-2 font-mono">{player.kd}</td>
+                      <td className="text-center py-3 px-2 text-gray-400">{player.avgDamage.toLocaleString()}</td>
+                      <td className={`text-center py-3 px-2 font-bold ${player.damageDiff > 0 ? 'text-green-400' : player.damageDiff < 0 ? 'text-red-400' : 'text-gray-500'}`}>
+                        {player.damageDiff > 0 ? '+' : ''}{player.damageDiff.toLocaleString()}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Match History */}
+      <div className="bg-gradient-to-b from-white/5 to-transparent rounded-xl border border-white/10 overflow-hidden">
+        <div className="p-6 border-b border-white/10">
+          <h3 className="text-lg font-semibold">Match History</h3>
+        </div>
+        <div className="p-6">
           {teamMatches.length === 0 ? (
             <p className="text-gray-500 text-center py-8">No matches played yet</p>
           ) : (
@@ -575,19 +708,94 @@ function TeamView({ team, matches, getTeamName, onBack }) {
                 const oppMaps = isTeam1 ? match.team2_maps : match.team1_maps
                 const oppName = getTeamName(isTeam1 ? match.team2_id : match.team1_id)
                 const won = teamMaps > oppMaps
+                const isExpanded = expandedMatch === match.id
+                const matchData = matchGames[match.id]
                 
                 return (
-                  <div key={match.id} className={`flex items-center justify-between p-4 rounded-lg ${won ? 'bg-green-500/10' : 'bg-red-500/10'}`}>
-                    <div>
-                      <span className={`font-bold ${won ? 'text-green-400' : 'text-red-400'}`}>
-                        {won ? 'W' : 'L'}
-                      </span>
-                      <span className="text-gray-400 ml-2">vs {oppName}</span>
+                  <div key={match.id} className="rounded-lg overflow-hidden">
+                    <div 
+                      onClick={() => fetchMatchGames(match.id)}
+                      className={`flex items-center justify-between p-4 cursor-pointer transition-colors ${won ? 'bg-green-500/10 hover:bg-green-500/20' : 'bg-red-500/10 hover:bg-red-500/20'}`}
+                    >
+                      <div className="flex items-center gap-3">
+                        <span className={`font-bold ${won ? 'text-green-400' : 'text-red-400'}`}>
+                          {won ? 'W' : 'L'}
+                        </span>
+                        <span className="text-gray-400">vs {oppName}</span>
+                      </div>
+                      <div className="flex items-center gap-4">
+                        <div className="font-mono font-bold">
+                          {teamMaps} - {oppMaps}
+                        </div>
+                        <div className="text-sm text-gray-500">Week {match.week}</div>
+                        <span className="text-gray-500">{isExpanded ? '▼' : '▶'}</span>
+                      </div>
                     </div>
-                    <div className="font-mono font-bold">
-                      {teamMaps} - {oppMaps}
-                    </div>
-                    <div className="text-sm text-gray-500">Week {match.week}</div>
+                    
+                    {/* Expanded Match Details */}
+                    {isExpanded && matchData && (
+                      <div className="bg-black/40 p-4 space-y-4">
+                        {matchData.games.length === 0 ? (
+                          <p className="text-gray-500 text-sm">No game details available</p>
+                        ) : (
+                          matchData.games.map(game => {
+                            const gameStats = matchData.stats.filter(s => s.game_id === game.id)
+                            const teamStats = gameStats.filter(s => s.team_id === team.id)
+                            const oppStats = gameStats.filter(s => s.team_id !== team.id)
+                            const teamWon = game.winner_team_id === team.id
+                            
+                            return (
+                              <div key={game.id} className="bg-white/5 rounded-lg p-3">
+                                <div className="flex items-center justify-between mb-3">
+                                  <div className="flex items-center gap-2">
+                                    <span className={`text-xs font-bold px-2 py-1 rounded ${teamWon ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'}`}>
+                                      {teamWon ? 'WIN' : 'LOSS'}
+                                    </span>
+                                    <span className="font-semibold">{game.game_variant}</span>
+                                    <span className="text-gray-500">on {game.map}</span>
+                                  </div>
+                                  <span className="text-sm text-gray-500">{game.duration}</span>
+                                </div>
+                                
+                                {teamStats.length > 0 && (
+                                  <div className="grid grid-cols-2 gap-4">
+                                    {/* Team Stats */}
+                                    <div>
+                                      <div className="text-xs text-gray-500 mb-2">{team.name}</div>
+                                      <div className="space-y-1">
+                                        {teamStats.sort((a, b) => (b.damage - b.damage_taken) - (a.damage - a.damage_taken)).map(s => (
+                                          <div key={s.id} className="flex justify-between text-xs">
+                                            <span className="truncate">{s.player_gamertag}</span>
+                                            <span className="font-mono text-gray-400">
+                                              {s.kills}/{s.deaths}/{s.assists}
+                                            </span>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    </div>
+                                    
+                                    {/* Opponent Stats */}
+                                    <div>
+                                      <div className="text-xs text-gray-500 mb-2">{oppName}</div>
+                                      <div className="space-y-1">
+                                        {oppStats.sort((a, b) => (b.damage - b.damage_taken) - (a.damage - a.damage_taken)).map(s => (
+                                          <div key={s.id} className="flex justify-between text-xs">
+                                            <span className="truncate">{s.player_gamertag}</span>
+                                            <span className="font-mono text-gray-400">
+                                              {s.kills}/{s.deaths}/{s.assists}
+                                            </span>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                            )
+                          })
+                        )}
+                      </div>
+                    )}
                   </div>
                 )
               })}
