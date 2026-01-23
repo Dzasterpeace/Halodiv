@@ -139,6 +139,7 @@ function mergeSplitGames(games) {
       // Multiple games of same map+variant - check if they need merging
       const variant = gamesGroup[0].variant.toLowerCase()
       const isSlayer = variant.includes('slayer')
+      const isOddball = variant.includes('oddball')
       
       if (isSlayer) {
         // For Slayer, check if total kills across all fragments equals ~50
@@ -168,8 +169,34 @@ function mergeSplitGames(games) {
           // Unclear situation, keep all
           mergedGames.push(...gamesGroup)
         }
+      } else if (isOddball) {
+        // For Oddball, a complete game requires one team to reach 2 rounds
+        // If no game has a team at 2, they're split games that need merging
+        const completeGames = gamesGroup.filter(g => 
+          g.winnerScore >= 2 || g.loserScore >= 2
+        )
+        const incompleteGames = gamesGroup.filter(g => 
+          g.winnerScore < 2 && g.loserScore < 2 && (g.winnerScore > 0 || g.loserScore > 0)
+        )
+        
+        // Keep complete games as-is
+        mergedGames.push(...completeGames)
+        
+        // Merge incomplete games if we have exactly 2
+        if (incompleteGames.length === 2) {
+          const merged = mergeGameStats(incompleteGames)
+          mergedGames.push(merged)
+        } else if (incompleteGames.length > 2) {
+          // More than 2 incomplete games - try to pair them
+          // For now, merge all into one
+          const merged = mergeGameStats(incompleteGames)
+          mergedGames.push(merged)
+        } else if (incompleteGames.length === 1) {
+          // Single incomplete game - keep it (might be a real short game)
+          mergedGames.push(incompleteGames[0])
+        }
       } else {
-        // For objective modes, check for 0-0 games (restarts)
+        // For other objective modes (CTF, Strongholds, KotH), check for 0-0 games (restarts)
         const validObjectiveGames = gamesGroup.filter(g => 
           g.winnerScore > 0 || g.loserScore > 0
         )
